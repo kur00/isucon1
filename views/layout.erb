@@ -16,7 +16,7 @@
     <% if current_user %>
       <nav>
         <ul class="nav nav-pills pull-right">
-          <li role="presentation"><a href="/users/<%= current_user[:id] %>"><%= current_user[:name] %>さんの購入履歴</a></li>
+          <li role="presentation"><a href="/users/<%= current_user%>"><%= current_user_name[:name] %>さんの購入履歴</a></li>
           <li role="presentation"><a href="/logout">Logout</a></li>
         </ul>
       </nav>

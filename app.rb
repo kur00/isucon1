@@ -2,6 +2,14 @@ require 'sinatra/base'
 require 'mysql2'
 require 'mysql2-cs-bind'
 require 'erubis'
+require 'rack-lineprof'
+require 'rack-mini-profiler'
+# require 'bullet'
+
+# Bullet.enable = true
+# Bullet.alert = true
+# Bullet.bullet_logger = true
+# Bullet.console = true
 
 module Ishocon1
   class AuthenticationError < StandardError; end
@@ -9,6 +17,9 @@ module Ishocon1
 end
 
 class Ishocon1::WebApp < Sinatra::Base
+  # use Bullet::Rack
+  use Rack::Lineprof, profile: './app.rb'
+  use Rack::MiniProfiler
   session_secret = ENV['ISHOCON1_SESSION_SECRET'] || 'showwin_happy'
   use Rack::Session::Cookie, key: 'rack.session', secret: session_secret
   set :erb, escape_html: true
@@ -21,8 +32,8 @@ class Ishocon1::WebApp < Sinatra::Base
         db: {
           host: ENV['ISHOCON1_DB_HOST'] || 'localhost',
           port: ENV['ISHOCON1_DB_PORT'] && ENV['ISHOCON1_DB_PORT'].to_i,
-          username: ENV['ISHOCON1_DB_USER'] || 'ishocon',
-          password: ENV['ISHOCON1_DB_PASSWORD'] || 'ishocon',
+          username: ENV['ISHOCON1_DB_USER'] || 'root',
+          #password: ENV['ISHOCON1_DB_PASSWORD'] || '',
           database: ENV['ISHOCON1_DB_NAME'] || 'ishocon1'
         }
       }
@@ -34,7 +45,7 @@ class Ishocon1::WebApp < Sinatra::Base
         host: config[:db][:host],
         port: config[:db][:port],
         username: config[:db][:username],
-        password: config[:db][:password],
+        #password: config[:db][:password],
         database: config[:db][:database],
         reconnect: true
       )
@@ -58,7 +69,12 @@ class Ishocon1::WebApp < Sinatra::Base
     end
 
     def current_user
-      db.xquery('SELECT * FROM users WHERE id = ?', session[:user_id]).first
+      return session[:user_id]
+          # db.xquery('SELECT id FROM users WHERE id = ?', session[:user_id]).first
+    end
+
+    def current_user_name
+      db.xquery('SELECT name FROM users WHERE id = ?', session[:user_id]).first
     end
 
     def update_last_login(user_id)
@@ -73,7 +89,7 @@ class Ishocon1::WebApp < Sinatra::Base
     def already_bought?(product_id)
       return false unless current_user
       count = db.xquery('SELECT count(*) as count FROM histories WHERE product_id = ? AND user_id = ?', \
-                        product_id, current_user[:id]).first[:count]
+                        product_id, current_user).first[:count]
       count > 0
     end
 
@@ -99,7 +115,7 @@ class Ishocon1::WebApp < Sinatra::Base
 
   post '/login' do
     authenticate(params['email'], params['password'])
-    update_last_login(current_user[:id])
+    update_last_login(current_user)
     redirect '/'
   end
 
@@ -110,10 +126,12 @@ class Ishocon1::WebApp < Sinatra::Base
   end
 
   get '/' do
-    page = params[:page].to_i || 0
-    products = db.xquery("SELECT * FROM products ORDER BY id DESC LIMIT 50 OFFSET #{page * 50}")
+    # page = params[:page].to_i || 0
+    # OFFSET #{page * 50}
+    products = db.xquery("SELECT * FROM products ORDER BY id DESC LIMIT 50 ")
     cmt_query = <<SQL
-SELECT *
+    #contentだけでよくね
+SELECT c.content
 FROM comments as c
 INNER JOIN users as u
 ON c.user_id = u.id
@@ -121,7 +139,10 @@ WHERE c.product_id = ?
 ORDER BY c.created_at DESC
 LIMIT 5
 SQL
-    cmt_count_query = 'SELECT count(*) as count FROM comments WHERE product_id = ?'
+    cmt_count_query = 'SELECT count(id) as count FROM comments WHERE product_id = ?'
+
+    # @comments = db.xquery(cmt_query, product[:id])
+    # @comments_count = db.xquery(cmt_count_query, product[:id]).first[:count]
 
     erb :index, locals: { products: products, cmt_query: cmt_query, cmt_count_query: cmt_count_query }
   end
@@ -154,14 +175,14 @@ SQL
 
   post '/products/buy/:product_id' do
     authenticated!
-    buy_product(params[:product_id], current_user[:id])
-    redirect "/users/#{current_user[:id]}"
+    buy_product(params[:product_id], current_user)
+    redirect "/users/#{current_user}"
   end
 
   post '/comments/:product_id' do
     authenticated!
-    create_comment(params[:product_id], current_user[:id], params[:content])
-    redirect "/users/#{current_user[:id]}"
+    create_comment(params[:product_id], current_user, params[:content])
+    redirect "/users/#{current_user}"
   end
 
   get '/initialize' do
